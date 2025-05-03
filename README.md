@@ -61,6 +61,13 @@ export ROS_MASTER_URI=http://192.168.28.<Turtlebot IP>:11311
 export ROS_HOSTNAME=192.168.28.<your IP>
 export ROS_IP=192.168.28.<your IP>
 ```
+Para guardar as alteraçoes do`~/.bashrc`:
+
+```bash
+source ~/.bashrc
+```
+
+
 
 ### Verifying Communication
 
