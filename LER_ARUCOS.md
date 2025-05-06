@@ -159,6 +159,12 @@ Usa o `rqt_image_view`:
 rosrun rqt_image_view rqt_image_view
 ```
 
+dentro da pasta
+```bash
+chmod +x aruco_detector.py
+rosrun tralha aruco_detector.py
+```
+
 Seleciona o tópico:
 
 ```
