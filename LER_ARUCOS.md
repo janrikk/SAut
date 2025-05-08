@@ -60,23 +60,6 @@ gedit tralha/scripts/detect_aruco.py
 
 4. Cola o conteúdo do script (ver abaixo).
 
-5. Dá permissões de execução:
-
-```bash
-chmod +x tralha/scripts/detect_aruco.py
-```
-
-6. Adiciona ao `CMakeLists.txt` (no final):
-
-```cmake
-catkin_install_python(PROGRAMS
-  scripts/detect_aruco.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-```
-
----
-
 ## 📸 Script: detect_aruco.py
 
 ```python
@@ -123,6 +106,22 @@ if __name__ == '__main__':
         rospy.spin()
     except rospy.ROSInterruptException:
         pass
+```
+
+---
+5. Dá permissões de execução (tens de estar na pasta do `~/catkin_ws/src`):
+
+```bash
+chmod +x tralha/scripts/detect_aruco.py
+```
+
+6. Adiciona ao `CMakeLists.txt` (no final):
+
+```cmake
+catkin_install_python(PROGRAMS
+  scripts/detect_aruco.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
 ```
 
 ---
