@@ -98,7 +98,8 @@ On the laptop:
 rosrun rqt_image_view rqt_image_view
 ```
 ## calibrar a câmara
-```rosrun camera_calibration cameracalibrator.py \
+```
+rosrun camera_calibration cameracalibrator.py \
   --size 9x6 \
   --square 0.024 \
   image:=/raspicam_node/image_raw \
