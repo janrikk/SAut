@@ -1,11 +1,3 @@
-/raspicam_node/camera_info
-/raspicam_node/image/compressed
-/raspicam_node/image_raw
-/raspicam_node/parameter_descriptions
-/raspicam_node/parameter_updates
-/reset
-
-
 # ROS & Turtlebot Setup
 
 This project involves developing and testing autonomous robotic systems using ROS 1 (Noetic) and Turtlebot robots. Below is an outline to help you configure your development environment and connect to the Turtlebot hardware.
