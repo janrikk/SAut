@@ -97,6 +97,12 @@ On the laptop:
 ```bash
 rosrun rqt_image_view rqt_image_view
 ```
+## calibrar a câmara
+```rosrun camera_calibration cameracalibrator.py \
+  --size 8x6 \
+  --square 0.025 \
+  image:=/raspicam_node/image_raw \
+  camera:=/raspicam_node```
 
 ## 📚 Useful Links
 
