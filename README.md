@@ -1,3 +1,11 @@
+user@waffle5:~ $ rosrun image_transport republish compressed in:=/raspicam_node/image/compressed raw out:=/raspicam_node/image_raw
+/opt/ros/kinetic/bin/rosrun: line 71: find: command not found
+[rosrun] Couldn't find executable named republish below /opt/ros/kinetic/share/image_transport
+/opt/ros/kinetic/bin/rosrun: line 78: find: command not found
+user@waffle5:~ $ 
+
+
+
 rosparam get /raspicam_node
 
 
