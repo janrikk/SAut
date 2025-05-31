@@ -1,3 +1,8 @@
+rosrun image_transport republish compressed in:=/raspicam_node/image/compressed raw out:=/raspicam_node/image_raw
+rosrun camera_calibration cameracalibrator.py --size 8x6 --square 0.025 image:=/raspicam_node/image_raw camera:=/raspicam_node
+
+
+
 # ROS & Turtlebot Setup
 
 This project involves developing and testing autonomous robotic systems using ROS 1 (Noetic) and Turtlebot robots. Below is an outline to help you configure your development environment and connect to the Turtlebot hardware.
