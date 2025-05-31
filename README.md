@@ -98,7 +98,12 @@ On the laptop:
 rosrun rqt_image_view rqt_image_view
 ```
 ## calibrar a câmara
-rosrun raspicam_node raspicam_node _camera_frame_id:=raspicam_frame _enable_raw:=true
+```rosrun camera_calibration cameracalibrator.py \
+  --size 9x6 \
+  --square 0.024 \
+  image:=/raspicam_node/image_raw \
+  camera:=/raspicam_node```
+
 
 
 ## 📚 Useful Links
