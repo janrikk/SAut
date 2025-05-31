@@ -102,9 +102,8 @@ rosrun rqt_image_view rqt_image_view
   --size 9x6 \
   --square 0.024 \
   image:=/raspicam_node/image_raw \
-  camera:=/raspicam_node```
-
-
+  camera:=/raspicam_node
+```
 
 ## 📚 Useful Links
 
