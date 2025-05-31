@@ -98,8 +98,8 @@ On the laptop:
 rosrun rqt_image_view rqt_image_view
 ```
 ## calibrar a câmara
-``` rosrun raspicam_node raspicam_node _camera_frame_id:=raspicam_frame _enable_raw:=true
-```
+rosrun raspicam_node raspicam_node _camera_frame_id:=raspicam_frame _enable_raw:=true
+
 
 ## 📚 Useful Links
 
