@@ -75,6 +75,7 @@ source ~/.bashrc
 rostopic list
 rostopic echo /odom
 rostopic hz /scan
+rostopic pub /cmd_vel geometry_msgs/Twist '[0.0, 0.0, 0.0]' '[0.0, 0.0, 0.5]' 
 ```
 
 ### Manual Control
