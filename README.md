@@ -8,6 +8,7 @@ rosparam set /raspicam_node/enable_raw true
 
 
 
+rosrun camera_calibration cameracalibrator.py --size 9x6 --square 0.025 image:=/raspicam_node/image_raw camera:=/raspicam_node
 
 
 # ROS & Turtlebot Setup
