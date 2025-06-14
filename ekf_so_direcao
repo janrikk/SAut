@@ -1,0 +1,421 @@
+import rospy
+import numpy as np
+import tf2_ros
+import geometry_msgs.msg
+from geometry_msgs.msg import Point
+from tf.transformations import quaternion_from_euler
+import csv
+import os
+
+from nav_msgs.msg import Odometry, Path
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from tralha.msg import ArucoDetection
+from visualization_msgs.msg import Marker, MarkerArray
+
+def wrap_to_pi(angle):
+    return (angle + np.pi) % (2 * np.pi) - np.pi
+
+def motion_model(x, u, dt):
+    x_new = x.copy()
+    v, w = u
+    theta = x[2]
+    x_new[0] += v * np.cos(theta) * dt
+    x_new[1] += v * np.sin(theta) * dt
+    x_new[2] = wrap_to_pi(theta + w * dt)
+    return x_new
+
+def jacobian_robot(x, u, dt):
+    v, w = u
+    theta = x[2]
+    Jr = np.eye(3)
+    Jr[0, 2] = -v * np.sin(theta) * dt
+    Jr[1, 2] =  v * np.cos(theta) * dt
+    return Jr
+
+def get_color_from_uncertainty(u_norm):
+    u = min(max(u_norm, 0.0), 1.0)
+    if u < 0.33:
+        r = 1 - u/0.33; g = 1.0; b = 0.0
+    elif u < 0.66:
+        r = 1.0; g = 1.0 - 0.5*((u-0.33)/0.33); b = 0.0
+    else:
+        r = 1.0; g = 0.5 - 0.5*((u-0.66)/0.34); b = 0.0
+    return (r, g, b)
+
+class EKFSLAMNode:
+    def __init__(self):
+        rospy.init_node('ekf_slam_node')
+
+        self.odom_path_file = os.path.join(os.path.expanduser('~'), 'odom_path.csv')
+        self.measurement_noise_scale = 20.0  
+        
+        if rospy.has_param('~initial_pose'):
+            ip = rospy.get_param('~initial_pose')
+            self.state = np.array([ip['x'], ip['y'], ip['theta']])
+            self.cov   = np.eye(3) * 1e-3
+            self.initialized_from_aruco = True
+        else:
+            self.state = np.zeros(3)
+            self.cov   = np.eye(3) * 1e-3
+            self.initialized_from_aruco = False
+        self.odom_state     = self.state[:3].copy()
+        self.last_odom_time = None
+
+
+        self.Q       = np.diag([0.001, 0.001, np.deg2rad(0.2)])**2
+        self.R_base = lambda r: (0.15 + 0.15*r)**2
+
+
+        self.landmark_dict         = {}  
+        self.landmark_observations = {}
+        self.landmarks_data        = {}  
+        self.n_landmarks           = 0
+
+        
+        self.pose_pub      = rospy.Publisher("/ekf_pose", PoseStamped, queue_size=10)
+        self.pose_cov_pub  = rospy.Publisher("/ekf_pose_cov", PoseWithCovarianceStamped, queue_size=10)
+        self.path_pub      = rospy.Publisher("/ekf_path", Path, queue_size=10)
+        self.odom_path_pub = rospy.Publisher("/odom_path", Path, queue_size=10)
+        self.landmarks_pub = rospy.Publisher("/ekf_landmarks", MarkerArray, queue_size=10)
+
+        self.path_msg      = Path(); self.path_msg.header.frame_id = "map"
+        self.odom_path_msg = Path(); self.odom_path_msg.header.frame_id = "map"
+
+        self.br        = tf2_ros.TransformBroadcaster()
+        self.tf_buffer = tf2_ros.Buffer()
+        tf2_ros.TransformListener(self.tf_buffer)
+
+       
+        rospy.Subscriber("/odom", Odometry, self.odom_callback)
+        rospy.Subscriber("/aruco_measurements", ArucoDetection, self.aruco_callback)
+
+        rospy.on_shutdown(self.on_shutdown)
+        rospy.loginfo("EKF SLAM Node iniciado")
+
+    def ekf_predict(self, u, dt):
+       
+        x_prio = self.state[:3].copy()
+        x_pred = motion_model(x_prio, u, dt)
+        self.state[:3] = x_pred
+
+        
+        Jr = jacobian_robot(x_prio, u, dt)
+        n  = len(self.state)
+        F  = np.eye(n); F[:3, :3] = Jr
+        Q_pad = np.pad(self.Q, ((0, n-3), (0, n-3)), 'constant')
+        self.cov = F @ self.cov @ F.T + Q_pad
+
+        
+        self.odom_state = motion_model(self.odom_state, u, dt)
+        ps = PoseStamped()
+        ps.header.stamp = rospy.Time.now()
+        ps.header.frame_id = "map"
+        ps.pose.position.x = self.odom_state[0]
+        ps.pose.position.y = self.odom_state[1]
+        ps.pose.position.z = 0.0
+        q = quaternion_from_euler(0, 0, self.odom_state[2])
+        ps.pose.orientation.x, ps.pose.orientation.y, ps.pose.orientation.z, ps.pose.orientation.w = q
+        self.odom_path_msg.poses.append(ps)
+        self.odom_path_pub.publish(self.odom_path_msg)
+        with open(self.odom_path_file, 'a') as f:
+            csv.writer(f).writerow([self.odom_state[0], self.odom_state[1], self.odom_state[2]])
+
+       
+        self.update_all_arcs()
+
+      
+        self.publish_pose()
+        self.publish_landmarks()
+
+    def initialize_landmark(self, lm_id, r):
+       
+        x0, y0, th = self.state[:3]
+        fov = np.pi / 4
+        start = wrap_to_pi(th - fov)
+        end   = wrap_to_pi(th + fov)
+        self.landmarks_data[lm_id] = {
+            'init_pose': (x0, y0),
+            'r': r,
+            'arc': (start, end),
+            'matured': False
+        }
+
+       
+        mid_ang = wrap_to_pi((start + end) / 2)
+        lx = x0 + r * np.cos(mid_ang)
+        ly = y0 + r * np.sin(mid_ang)
+        self.state = np.append(self.state, [lx, ly])
+        self.n_landmarks += 1
+        idx = 3 + 2*(self.n_landmarks-1)
+        self.landmark_dict[lm_id] = idx
+        self.landmark_observations[lm_id] = 1
+
+        old_cov = self.cov
+        n_old = old_cov.shape[0]
+        new_cov = np.zeros((n_old+2, n_old+2))
+        new_cov[:n_old, :n_old] = old_cov
+        new_cov[n_old:, n_old:] = np.eye(2) * 1.0
+        self.cov = new_cov
+
+        rospy.loginfo(f"[LANDMARK INIT] ID={lm_id}, r={r:.2f}, arc=({np.rad2deg(start):.1f}°–{np.rad2deg(end):.1f}°)")
+
+    def update_arc(self, lm_id):
+        data = self.landmarks_data[lm_id]
+        if data['matured']:
+            return
+
+        x0, y0 = data['init_pose']
+        r = data['r']
+        start, end = data['arc']
+
+        raw = np.linspace(start, end if end>start else end+2*np.pi, 200)
+        angs = np.mod(raw, 2*np.pi)
+        pts = np.vstack([x0 + r*np.cos(angs), y0 + r*np.sin(angs)]).T
+
+
+        xc, yc = self.odom_state[:2]
+        dists = np.linalg.norm(pts - np.array([xc, yc]), axis=1)
+        mask = np.abs(dists - r) < 0.05
+        if not np.any(mask):
+            return
+
+        a = np.sort(angs[mask])
+        gaps = np.diff(np.concatenate([a, a[:1]+2*np.pi]))
+        i = np.argmax(gaps)
+        ns = a[(i+1) % len(a)]
+        ne = a[i] if a[i] > ns else a[i] + 2*np.pi
+        data['arc'] = (ns, ne)
+
+        width = ne - ns
+        if width <= np.deg2rad(6.0):
+
+            mid = ns + width/2
+            lx = x0 + r*np.cos(mid)
+            ly = y0 + r*np.sin(mid)
+            idx = self.landmark_dict[lm_id]
+            self.state[idx]   = lx
+            self.state[idx+1] = ly
+            self.cov[idx:idx+2, idx:idx+2] *= 0.1
+            data['matured'] = True
+            rospy.loginfo(f"[ARC MATURED] ID={lm_id}, width={np.rad2deg(width):.2f}° → pos=({lx:.2f},{ly:.2f})")
+
+    def update_all_arcs(self):
+        for lm_id in list(self.landmark_dict.keys()):
+            self.update_arc(lm_id)
+
+    def aruco_callback(self, msg):
+        r, lm_id = msg.range, msg.id
+
+        if not self.initialized_from_aruco:
+
+            x0, y0, th0 = -r, 0.0, 0.0
+            self.state[:3] = np.array([x0, y0, th0])
+            self.initialized_from_aruco = True
+            rospy.loginfo(f"[INIT] Pose inicial via ArUco ID={lm_id}: x={x0:.2f}, y={y0:.2f}, θ=0")
+            self.initialize_landmark(lm_id, r)
+            return
+
+        
+        if lm_id in self.landmarks_data and self.landmarks_data[lm_id]['matured']:
+            return
+
+        
+        if lm_id not in self.landmark_dict:
+            self.initialize_landmark(lm_id, r)
+        else:
+            x0, y0, th = self.state[:3]
+            fov = np.pi/4
+            start = wrap_to_pi(th - fov)
+            end   = wrap_to_pi(th + fov)
+            data = self.landmarks_data[lm_id]
+            data['init_pose'] = (x0, y0)
+            data['r'] = r
+            data['arc'] = (start, end)
+            data['matured'] = False
+            self.landmark_observations[lm_id] += 1
+
+
+        idx = self.landmark_dict[lm_id]
+        x_r, y_r = self.state[0], self.state[1]
+        dx, dy = self.state[idx] - x_r, self.state[idx+1] - y_r
+        pred_r = np.hypot(dx, dy)
+        y_k = r - pred_r
+
+        n = len(self.state)
+        H = np.zeros((1, n))
+        H[0, 0] = -dx / pred_r
+        H[0, 1] = -dy / pred_r
+        H[0, idx]   =  dx / pred_r
+        H[0, idx+1] =  dy / pred_r
+
+        obs = self.landmark_observations[lm_id]
+        decay = min(obs / 10.0, 1.0)
+        R = self.R_base(r) * (1.0 - 0.7*decay) * self.measurement_noise_scale
+
+        S = H @ self.cov @ H.T + R
+        K = self.cov @ H.T @ np.linalg.inv(S)
+        delta = (K.flatten() * y_k)
+
+
+        dl = delta[idx:idx+2]
+        norm_dl = np.linalg.norm(dl)
+        max_move = 0.1
+        if norm_dl > max_move:
+            dl = dl / norm_dl * max_move
+            delta[idx]   = dl[0]
+            delta[idx+1] = dl[1]
+
+        self.state += delta
+        self.state[2] = wrap_to_pi(self.state[2])
+        I = np.eye(n)
+        self.cov = (I - K @ H) @ self.cov
+
+        rospy.loginfo(f"[UPDATE] ID={lm_id}, obs={obs}")
+
+        self.publish_pose()
+        self.publish_landmarks()
+
+    def publish_pose(self):
+        if not self.initialized_from_aruco:
+            return
+        now = rospy.Time.now()
+        ps = PoseStamped()
+        ps.header.stamp = now
+        ps.header.frame_id = "map"
+        ps.pose.position.x = self.state[0]
+        ps.pose.position.y = self.state[1]
+        ps.pose.position.z = 0.0
+        q = quaternion_from_euler(0, 0, self.state[2])
+        ps.pose.orientation.x, ps.pose.orientation.y, ps.pose.orientation.z, ps.pose.orientation.w = q
+        self.pose_pub.publish(ps)
+
+        pc = PoseWithCovarianceStamped()
+        pc.header = ps.header
+        pc.pose.pose = ps.pose
+        pc.pose.covariance[:6] = [
+            self.cov[0,0], self.cov[0,1], 0.0,
+            self.cov[1,0], self.cov[1,1], 0.0
+        ]
+        pc.pose.covariance[35] = self.cov[2,2]
+        self.pose_cov_pub.publish(pc)
+
+
+        t_mo = geometry_msgs.msg.TransformStamped()
+        t_mo.header.stamp = now
+        t_mo.header.frame_id = "map"
+        t_mo.child_frame_id = "odom"
+        t_mo.transform.translation.x = -self.state[0]
+        t_mo.transform.translation.y = -self.state[1]
+        t_mo.transform.translation.z = 0.0
+        qi = quaternion_from_euler(0, 0, -self.state[2])
+        t_mo.transform.rotation.x, t_mo.transform.rotation.y, t_mo.transform.rotation.z, t_mo.transform.rotation.w = qi
+        self.br.sendTransform(t_mo)
+
+        t_ob = geometry_msgs.msg.TransformStamped()
+        t_ob.header.stamp = now
+        t_ob.header.frame_id = "odom"
+        t_ob.child_frame_id = "base_footprint"
+        t_ob.transform.translation.x = self.state[0]
+        t_ob.transform.translation.y = self.state[1]
+        t_ob.transform.translation.z = 0.0
+        t_ob.transform.rotation.x, t_ob.transform.rotation.y, t_ob.transform.rotation.z, t_ob.transform.rotation.w = q
+        self.br.sendTransform(t_ob)
+
+        self.path_msg.header.stamp = now
+        self.path_msg.poses.append(ps)
+        self.path_pub.publish(self.path_msg)
+
+    def publish_landmarks(self):
+        ma = MarkerArray()
+        mid = 0
+        for lm_id, idx in self.landmark_dict.items():
+            data = self.landmarks_data[lm_id]
+            start, end = data['arc']
+            r = data['r']
+            x0, y0 = data['init_pose']
+
+
+            ang_mid = wrap_to_pi((start + end) / 2)
+            xm = x0 + r * np.cos(ang_mid)
+            ym = y0 + r * np.sin(ang_mid)
+            m = Marker()
+            m.header.frame_id = "map"
+            m.header.stamp = rospy.Time.now()
+            m.ns = "landmarks"
+            m.id = mid
+            m.type = Marker.SPHERE
+            m.action = Marker.ADD
+            mid += 1
+            m.pose.position.x, m.pose.position.y, m.pose.position.z = xm, ym, 0.1
+            m.pose.orientation.w = 1.0
+            cov2 = self.cov[idx:idx+2, idx:idx+2]
+            unc = np.trace(cov2)
+            scale = max(0.2, min(0.8, unc))
+            m.scale.x, m.scale.y, m.scale.z = scale, scale, 0.1
+            col = get_color_from_uncertainty(min(unc / 1.0, 1.0))
+            m.color.r, m.color.g, m.color.b, m.color.a = *col, 1.0
+            ma.markers.append(m)
+
+
+            ex = Marker()
+            ex.header.frame_id = "map"
+            ex.header.stamp = rospy.Time.now()
+            ex.ns = "exclusion_zones"
+            ex.id = mid
+            ex.type = Marker.CYLINDER
+            ex.action = Marker.ADD
+            mid += 1
+            ex.pose.position.x, ex.pose.position.y, ex.pose.position.z = xm, ym, 0.05
+            ex.pose.orientation.w = 1.0
+            ex.scale.x, ex.scale.y, ex.scale.z = 1.5, 1.5, 0.01
+            ex.color.r, ex.color.g, ex.color.b, ex.color.a = 0.2, 0.2, 1.0, 0.15
+            ma.markers.append(ex)
+
+            angs = np.linspace(start, end, 60)
+            arc = Marker()
+            arc.header.frame_id = "map"
+            arc.header.stamp = rospy.Time.now()
+            arc.ns = "landmark_arcs"
+            arc.id = mid
+            arc.type = Marker.LINE_STRIP
+            arc.action = Marker.ADD
+            mid += 1
+            arc.scale.x = 0.03
+            if data['matured']:
+                arc.color.r, arc.color.g, arc.color.b, arc.color.a = 0.0, 1.0, 0.0, 1.0
+            else:
+                arc.color.r, arc.color.g, arc.color.b, arc.color.a = 1.0, 1.0, 0.0, 1.0
+            for a in angs:
+                p = Point(x0 + r*np.cos(a), y0 + r*np.sin(a), 0.05)
+                arc.points.append(p)
+            ma.markers.append(arc)
+
+        self.landmarks_pub.publish(ma)
+
+    def odom_callback(self, msg):
+        if not self.initialized_from_aruco:
+            return
+        v = msg.twist.twist.linear.x
+        w = msg.twist.twist.angular.z
+        t = msg.header.stamp.to_sec()
+        if self.last_odom_time is None:
+            self.last_odom_time = t
+            return
+        dt = t - self.last_odom_time
+        self.last_odom_time = t
+        self.ekf_predict([v, w], dt)
+
+    def on_shutdown(self):
+        rospy.loginfo("Pose final: x={:.2f}, y={:.2f}, θ={:.1f}°".format(
+            self.state[0], self.state[1], np.rad2deg(self.state[2])))
+        for lm_id, idx in self.landmark_dict.items():
+            x, y = self.state[idx], self.state[idx+1]
+            rospy.loginfo(f"  ID {lm_id} → ({x:.2f}, {y:.2f})")
+       
+if __name__ == '__main__':
+    try:
+        open(os.path.join(os.path.expanduser('~'), 'odom_path.csv'), 'w').close()
+        node = EKFSLAMNode()
+        rospy.spin()
+    except rospy.ROSInterruptException:
+        pass
