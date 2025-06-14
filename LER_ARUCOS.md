@@ -1,10 +1,10 @@
-# 🧠 ArUco Marker Detection with ROS (Noetic)
+# ArUco Marker Detection with ROS (Noetic)
 
 Este projeto ROS deteta marcadores ArUco utilizando imagens de uma câmara (ex: Raspicam). Os marcadores são desenhados na imagem e a pose é publicada em `/aruco_detections`.
 
 ---
 
-## 📦 Estrutura do workspace
+## Estrutura do workspace
 
 Certifica-te que tens um workspace `catkin_ws` funcional. Este pacote vai dentro da pasta `src/`.
 
@@ -20,7 +20,7 @@ catkin_ws/
 
 ---
 
-## 🔧 Pré-requisitos
+## Pré-requisitos
 
 - Ubuntu 20.04
 - ROS Noetic
@@ -37,7 +37,7 @@ sudo apt install ros-noetic-cv-bridge ros-noetic-image-transport python3-opencv
 
 ---
 
-## 🚀 Instalação
+## Instalação
 
 1. Entra no teu workspace:
 
@@ -60,7 +60,7 @@ gedit tralha/scripts/detect_aruco.py
 
 4. Cola o conteúdo do script (ver abaixo).
 
-## 📸 Script: detect_aruco.py
+## Script: detect_aruco.py
 
 ```python
 #!/usr/bin/env python3
@@ -126,7 +126,7 @@ catkin_install_python(PROGRAMS
 
 ---
 
-## 🛠 Compilar
+## Compilar
 
 ```bash
 cd ~/catkin_ws
@@ -136,7 +136,7 @@ source devel/setup.bash
 
 ---
 
-## ▶️ Executar
+## Executar
 
 ```bash
 roscore
