@@ -170,23 +170,3 @@ Seleciona o tópico:
 /aruco_detections
 ```
 
----
-
-## 🧪 Debugging
-
-- Verifica que o tópico da câmara está ativo (ex: `/raspicam_node/image/compressed`)
-- Garante que `cv_bridge` e `image_transport` estão corretamente instalados.
-- Podes usar `rqt_graph` para confirmar que os nós e tópicos estão ligados corretamente.
-
----
-
-## 📦 Extras
-
-- Podes alterar o dicionário ArUco em `aruco.Dictionary_get(...)` para 4x4, 5x5, 7x7 etc.
-- A pose dos marcadores pode ser calculada se tiveres a calibração da câmara e usares `cv2.aruco.estimatePoseSingleMarkers`.
-
----
-
-## 🧠 Créditos
-
-Desenvolvido com ❤️ para projetos com ROS e visão por computador.
