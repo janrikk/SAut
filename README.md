@@ -1,31 +1,9 @@
-user@waffle5:~ $ rosrun image_transport republish compressed in:=/raspicam_node/image/compressed raw out:=/raspicam_node/image_raw
-/opt/ros/kinetic/bin/rosrun: line 71: find: command not found
-[rosrun] Couldn't find executable named republish below /opt/ros/kinetic/share/image_transport
-/opt/ros/kinetic/bin/rosrun: line 78: find: command not found
-user@waffle5:~ $ 
-
-
-
-rosparam get /raspicam_node
-
-
-rosparam list | grep raspicam_node
-
-
-rosparam set /raspicam_node/enable_raw true
-
-
-
-rosrun camera_calibration cameracalibrator.py --size 9x6 --square 0.025 image:=/raspicam_node/image_raw camera:=/raspicam_node
-
-rosrun image_transport republish compressed in:=/raspicam_node/image/compressed raw out:=/raspicam_node/image_raw
-
 
 # ROS & Turtlebot Setup
 
 This project involves developing and testing autonomous robotic systems using ROS 1 (Noetic) and Turtlebot robots. Below is an outline to help you configure your development environment and connect to the Turtlebot hardware.
 
-## 💻 System Requirements
+## System Requirements
 
 - **OS**: Ubuntu 20.04 LTS (recommended for ROS Noetic)
 - **ROS Version**: ROS Noetic
@@ -34,12 +12,12 @@ This project involves developing and testing autonomous robotic systems using RO
   - `teleop-twist-keyboard` for manual robot control
   - `rqt_image_view` and `rviz` for visualization
 
-## 🧰 ROS Installation Resources
+## ROS Installation Resources
 
 - [ROS Noetic Installation Guide](http://wiki.ros.org/noetic/Installation/Ubuntu)
 - [Helpful Setup Guide](https://varhowto.com/install-ros-noetic-ubuntu-20-04)
 
-## 🐢 Turtlebot Setup
+## Turtlebot Setup
 
 ### Network Details
 
@@ -119,14 +97,6 @@ On the laptop:
 
 ```bash
 rosrun rqt_image_view rqt_image_view
-```
-## calibrar a câmara
-```
-rosrun camera_calibration cameracalibrator.py \
-  --size 9x6 \
-  --square 0.024 \
-  image:=/raspicam_node/image_raw \
-  camera:=/raspicam_node
 ```
 
 ## 📚 Useful Links
